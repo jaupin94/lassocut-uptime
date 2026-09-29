@@ -1,0 +1,37 @@
+# Uptime checks for LassoCut. A failed run makes GitHub email the repository owner.
+# Site: every 10 minutes (free). API: every 3 hours, because each API probe wakes the paid web container.
+name: Uptime
+on:
+  schedule:
+    - cron: '*/10 * * * *'   # site
+    - cron: '7 */3 * * *'    # API
+  workflow_dispatch:
+permissions: {}
+jobs:
+  site:
+    if: github.event.schedule != '7 */3 * * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: www.lassocut.com answers 200
+        run: |
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 https://www.lassocut.com/)
+            [ "$code" = 200 ] && exit 0
+            echo "attempt $attempt: HTTP $code"; sleep 30
+          done
+          echo "::error::www.lassocut.com is down"; exit 1
+  api:
+    if: github.event.schedule == '7 */3 * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: api.lassocut.com reaches the engine
+        # without a key the engine answers 403 {"errors":[{"title":"Missing API Key"}]}: Vercel, the relay and the app are up
+        run: |
+          for attempt in 1 2 3; do
+            body=$(curl -s --max-time 60 https://api.lassocut.com/v1.0/account || true)
+            echo "$body" | grep -q 'Missing API Key' && exit 0
+            echo "attempt $attempt: $body"; sleep 30
+          done
+          echo "::error::the LassoCut API is down"; exit 1
